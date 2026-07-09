@@ -1,0 +1,204 @@
+# Swarm Configuration Template
+# ============================
+# Template for defining a multi-agent swarm following AESP.
+# AESP References: AESP-0005, AESP-0006, AESP-0007
+# ============================
+
+## [REQUIRED] Swarm Metadata
+swarm:
+  id: "[REPLACE: unique-swarm-id]"
+  name: "[REPLACE: Human-readable Swarm Name]"
+  version: "1.0.0"
+  spec_version: "0.1.0"
+  description: |
+    [REPLACE: Brief description of what this swarm does, its purpose,
+    and the types of tasks it handles.]
+
+  classification:
+    type: "[REPLACE: project-team|functional-unit|cross-functional]"
+    domain: "[REPLACE: primary domain, e.g., 'web-development']"
+    criticality: "[REPLACE: critical|high|medium|low]"
+
+## [REQUIRED] Runtime Configuration
+runtime:
+  environment: "[REPLACE: local|docker|kubernetes|serverless]"
+  resources:
+    max_agents: [REPLACE: e.g., 10]
+    memory_limit: "[REPLACE: e.g., '4Gi']"
+    timeout: "[REPLACE: e.g., '30m']"
+  scaling:
+    enabled: true|false
+    min_agents: [REPLACE: minimum agent count]
+    max_agents: [REPLACE: maximum agent count]
+    scale_up_trigger: "[REPLACE: e.g., 'queue_depth > 10']"
+    scale_down_trigger: "[REPLACE: e.g., 'idle_time > 5m']"
+
+## [REQUIRED] Agent Definitions
+agents:
+  - id: "[REPLACE: unique-agent-id]"
+    name: "[REPLACE: Agent Name]"
+    role: "[REPLACE: role-id referencing an agent role definition]"
+    config:
+      system_prompt: |
+        [REPLACE: System prompt or reference: file://path/to/prompt.md]
+      model:
+        provider: "[REPLACE: e.g., 'anthropic|openai|google|local]"
+        model: "[REPLACE: e.g., 'claude-sonnet-4-20250514']"
+        temperature: [REPLACE: 0.0-1.0]
+        max_tokens: [REPLACE: e.g., 4096]
+      capabilities_override:
+        - add: "[REPLACE: additional capability]"
+        - remove: "[REPLACE: capability to remove]"
+    memory:
+      short_term:
+        enabled: true
+        context_window: "[REPLACE: e.g., '200k tokens']"
+      long_term:
+        enabled: true
+        storage: "[REPLACE: storage backend]"
+        scope: "personal"
+    constraints:
+      - "[REPLACE: agent-specific constraint]"
+    metadata:
+      owner: "[REPLACE: team responsible]"
+      priority: [REPLACE: 1-5]
+
+  # EXAMPLE: 5-agent development team
+  - id: "architect-1"
+    name: "System Architect"
+    role: "architect"
+    config:
+      system_prompt: "file://prompts/system-prompts/architect.md"
+      model:
+        provider: "anthropic"
+        model: "claude-sonnet-4-20250514"
+        temperature: 0.2
+        max_tokens: 8192
+    memory:
+      short_term: { enabled: true, context_window: "200k tokens" }
+      long_term: { enabled: true, storage: "vector-db", scope: "shared" }
+    metadata: { owner: "platform-team", priority: 1 }
+
+  - id: "backend-dev-1"
+    name: "Backend Developer"
+    role: "backend-developer"
+    config:
+      system_prompt: |
+        You are an expert backend developer specializing in API design,
+        database optimization, and microservices architecture.
+      model:
+        provider: "anthropic"
+        model: "claude-sonnet-4-20250514"
+        temperature: 0.3
+        max_tokens: 4096
+    metadata: { owner: "backend-team", priority: 2 }
+
+  - id: "frontend-dev-1"
+    name: "Frontend Developer"
+    role: "frontend-developer"
+    config:
+      system_prompt: |
+        You are an expert frontend developer specializing in React,
+        TypeScript, and modern CSS. You build accessible, performant UIs.
+      model:
+        provider: "anthropic"
+        model: "claude-sonnet-4-20250514"
+        temperature: 0.3
+        max_tokens: 4096
+    metadata: { owner: "frontend-team", priority: 2 }
+
+  - id: "code-reviewer-1"
+    name: "Code Reviewer"
+    role: "code-reviewer"
+    config:
+      system_prompt: "file://prompts/system-prompts/code-reviewer.md"
+      model:
+        provider: "anthropic"
+        model: "claude-sonnet-4-20250514"
+        temperature: 0.1
+        max_tokens: 4096
+    metadata: { owner: "quality-team", priority: 3 }
+
+  - id: "security-auditor-1"
+    name: "Security Auditor"
+    role: "security-auditor"
+    config:
+      system_prompt: "file://prompts/system-prompts/security-auditor.md"
+      model:
+        provider: "anthropic"
+        model: "claude-sonnet-4-20250514"
+        temperature: 0.1
+        max_tokens: 4096
+    metadata: { owner: "security-team", priority: 1 }
+
+## [REQUIRED] Communication Topology
+topology:
+  type: "[REPLACE: mesh|hub-spoke|pipeline|star|custom]"
+
+  # --- Hub-Spoke ---
+  hubs:
+    - agent_id: "[REPLACE: hub agent id]"
+      responsibilities:
+        - "[REPLACE: coordination responsibility]"
+
+  # --- Pipeline ---
+  pipeline:
+    stages:
+      - order: 1
+        agent_id: "[REPLACE: first agent]"
+        description: "[REPLACE: stage description]"
+      - order: 2
+        agent_id: "[REPLACE: second agent]"
+        description: "[REPLACE: stage description]"
+
+  # --- Custom ---
+  connections:
+    - from: "[REPLACE: source]"
+      to: "[REPLACE: target]"
+      direction: "[REPLACE: unidirectional|bidirectional]"
+      protocol: "[REPLACE: message|stream|rpc]"
+
+## [REQUIRED] Shared Memory
+shared_memory:
+  enabled: true|false
+  storage:
+    type: "[REPLACE: vector-db|redis|postgres|filesystem]"
+    connection: "[REPLACE: connection string]"
+  knowledge_bases:
+    - name: "[REPLACE: knowledge base name]"
+      description: "[REPLACE: what it contains]"
+      access: "[REPLACE: read|write|admin]"
+      agents: ["[REPLACE: agent id]"]
+
+## [REQUIRED] Workflow Assignments
+workflows:
+  assigned:
+    - workflow_id: "[REPLACE: workflow identifier]"
+      workflow_file: "[REPLACE: path/to/workflow.yaml]"
+      trigger: "[REPLACE: manual|scheduled|event-driven]"
+      assigned_agents: ["[REPLACE: agent id]"]
+
+## [REQUIRED] Health & Monitoring
+health:
+  checks:
+    - type: "[REPLACE: heartbeat|response-time|error-rate]"
+      interval: "[REPLACE: e.g., '30s']"
+      timeout: "[REPLACE: e.g., '10s']"
+      threshold: [REPLACE: e.g., 3]
+  alerts:
+    - condition: "[REPLACE: alert condition]"
+      severity: "[REPLACE: critical|warning|info]"
+      notify: "[REPLACE: notification channel]"
+
+## [OPTIONAL] Security & Governance
+security:
+  audit:
+    enabled: true|false
+    log_level: "[REPLACE: debug|info|warn|error]"
+    retention: "[REPLACE: e.g., '90d']"
+  access_control:
+    enabled: true|false
+    policy: "[REPLACE: rbac|abac|custom]"
+  secrets:
+    provider: "[REPLACE: vault|aws-secrets|azure-keyvault|gcp-secrets|env]"
+    prefix: "[REPLACE: secret key prefix]"

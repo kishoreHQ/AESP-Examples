@@ -1,0 +1,228 @@
+# Code Review Workflow
+# ===================
+# AESP Workflow: Automated Code Review with Agent Swarm
+#
+# This workflow orchestrates multiple review agents to provide
+# comprehensive, multi-perspective code reviews on pull requests.
+#
+# AESP References:
+#   - AESP-0007: Workflow Orchestration
+#   - AESP-0003: Agent Roles
+#
+# The workflow assigns specialized agents to focus on different
+# aspects: code quality, security, and architecture.
+# ===================
+
+workflow:
+  id: "code-review"
+  name: "Multi-Agent Code Review"
+  description: "Comprehensive code review using specialized agent swarm"
+  version: "1.0.0"
+  spec_version: "0.1.0"
+
+  ## [REQUIRED] Trigger
+  trigger:
+    type: "event-driven"
+    events:
+      - "pull_request.opened"
+      - "pull_request.synchronize"
+      - "pull_request.ready_for_review"
+    ## Only review when PR is not draft
+    conditions:
+      - "{{pr.draft}} == false"
+      - "{{pr.lines_changed}} < 2000"
+
+  ## [REQUIRED] Review Steps
+  steps:
+    # --------------------------------------------------
+    # Stage 1: Context Gathering
+    # --------------------------------------------------
+    - id: "gather-context"
+      name: "Gather PR Context"
+      description: "Collect PR metadata, linked issues, and project context"
+      agent: "code-reviewer"
+      action:
+        type: "gather_context"
+        config:
+          sources:
+            - "pr.description"
+            - "pr.linked_issues"
+            - "commit.messages"
+            - "project.coding_standards"
+            - "recent.related_changes"
+      output:
+        - "context.summary"
+        - "context.focus_areas"
+      timeout: "2m"
+
+    # --------------------------------------------------
+    # Stage 2: Code Quality Review (Parallel)
+    # --------------------------------------------------
+    - id: "quality-review"
+      name: "Code Quality Review"
+      description: "Review code quality, style, and maintainability"
+      agent: "code-reviewer"
+      action:
+        type: "review"
+        config:
+          focus: "quality"
+          checks:
+            - "code_style"
+            - "naming_conventions"
+            - "complexity"
+            - "documentation"
+            - "test_coverage"
+          severity_threshold: "warning"
+      input:
+        - "{{trigger.pr_diff}}"
+        - "{{steps.gather-context.output.context.summary}}"
+      output:
+        - "quality.findings"
+        - "quality.score"
+      timeout: "5m"
+
+    # --------------------------------------------------
+    # Stage 3: Security Review (Parallel)
+    # --------------------------------------------------
+    - id: "security-review"
+      name: "Security Review"
+      description: "Review for security vulnerabilities and anti-patterns"
+      agent: "security-auditor"
+      action:
+        type: "security_review"
+        config:
+          checks:
+            - "injection_vulnerabilities"
+            - "authentication_authorization"
+            - "secrets_exposure"
+            - "input_validation"
+            - "dependency_vulnerabilities"
+          standards:
+            - "OWASP_TOP_10"
+            - "CWE_TOP_25"
+      input:
+        - "{{trigger.pr_diff}}"
+        - "{{trigger.changed_files}}"
+      output:
+        - "security.findings"
+        - "security.score"
+      timeout: "5m"
+
+    # --------------------------------------------------
+    # Stage 4: Architecture Review (Parallel)
+    # --------------------------------------------------
+    - id: "architecture-review"
+      name: "Architecture Review"
+      description: "Review architectural alignment and design decisions"
+      agent: "architect"
+      action:
+        type: "architecture_review"
+        config:
+          checks:
+            - "pattern_compliance"
+            - "api_contract_alignment"
+            - "dependency_direction"
+            - "performance_implications"
+            - "scalability_concerns"
+      input:
+        - "{{trigger.pr_diff}}"
+        - "{{project.architecture_docs}}"
+      output:
+        - "architecture.findings"
+        - "architecture.score"
+      timeout: "5m"
+
+    # --------------------------------------------------
+    # Stage 5: Consolidate Reviews
+    # --------------------------------------------------
+    - id: "consolidate"
+      name: "Consolidate Reviews"
+      description: "Merge findings from all reviewers into unified report"
+      agent: "code-reviewer"
+      action:
+        type: "consolidate"
+        config:
+          deduplicate: true
+          prioritize: true
+          generate_summary: true
+          approval_logic: "weighted_scores"
+          weights:
+            quality: 0.4
+            security: 0.4
+            architecture: 0.2
+          thresholds:
+            approve: 85
+            comment: 70
+            request_changes: 0
+      input:
+        - "{{steps.quality-review.output.quality.findings}}"
+        - "{{steps.security-review.output.security.findings}}"
+        - "{{steps.architecture-review.output.architecture.findings}}"
+      output:
+        - "consolidated.report"
+        - "consolidated.recommendation"
+        - "consolidated.score"
+      timeout: "3m"
+
+    # --------------------------------------------------
+    # Stage 6: Post Review Comment
+    # --------------------------------------------------
+    - id: "post-review"
+      name: "Post Review Comment"
+      description: "Submit consolidated review as PR comment"
+      agent: "code-reviewer"
+      action:
+        type: "post_comment"
+        config:
+          format: "structured_markdown"
+          include_scores: true
+          include_metrics: true
+          inline_comments: true
+          request_changes_on_critical: true
+      input:
+        - "{{steps.consolidate.output.consolidated.report}}"
+        - "{{steps.consolidate.output.consolidated.recommendation}}"
+      output:
+        - "review.posted"
+        - "review.comment_url"
+      timeout: "2m"
+
+  ## [OPTIONAL] Review Configuration
+  review_config:
+    ## How conflicting reviews are handled
+    conflict_resolution: "highest_severity_wins"
+    ## Whether human review is still required
+    human_review_required: true
+    ## Auto-approval criteria
+    auto_approve:
+      enabled: false
+      ## When enabled, auto-approve if:
+      ## - All scores above threshold AND
+      ## - No critical findings AND
+      ## - Only trivial changes (docs, comments)
+      conditions:
+        - "quality.score > 90"
+        - "security.score > 95"
+        - "architecture.score > 85"
+        - "critical_findings == 0"
+
+  ## [OPTIONAL] Notifications
+  notifications:
+    on_review_complete:
+      - channel: "pr_comment"
+        message: "{{review.summary}}"
+    on_critical_finding:
+      - channel: "slack"
+        target: "#security-alerts"
+        message: "Critical security finding in {{pr.url}}"
+
+  ## [OPTIONAL] Metrics
+  metrics:
+    - name: "review_duration"
+      description: "Total time from PR open to review posted"
+    - name: "findings_count"
+      description: "Number of findings by severity and category"
+    - name: "review_score"
+      description: "Overall quality score"
+    - name: "false_positive_rate"
+      description: "Percentage of findings rejected by human"

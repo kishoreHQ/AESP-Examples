@@ -1,0 +1,325 @@
+# Incident Response Workflow
+# ==========================
+# AESP Workflow: Production Incident Response
+#
+# This workflow defines a structured incident response process using
+# agent swarms. It covers detection, triage, mitigation, communication,
+# and post-incident review.
+#
+# AESP References:
+#   - AESP-0007: Workflow Orchestration
+#   - AESP-0013: Incident Management
+#
+# Severity Levels:
+#   SEV1: Critical - Complete service outage, data loss, security breach
+#   SEV2: High     - Major functionality degraded, significant user impact
+#   SEV3: Medium   - Partial degradation, workaround available
+#   SEV4: Low      - Minor issue, minimal user impact
+# ==========================
+
+workflow:
+  id: "incident-response"
+  name: "Incident Response"
+  description: "Structured incident response with agent swarm coordination"
+  version: "1.0.0"
+  spec_version: "0.1.0"
+
+  ## [REQUIRED] Trigger
+  trigger:
+    type: "event-driven"
+    events:
+      - "alert.critical"
+      - "alert.error_rate_spike"
+      - "alert.latency_spike"
+      - "manual.incident_declared"
+    ## Auto-detect severity from alert payload
+    severity_mapping:
+      - alert_severity: "critical"
+        incident_severity: "SEV1"
+      - alert_severity: "warning"
+        incident_severity: "SEV2"
+
+  ## [REQUIRED] Incident Steps
+  steps:
+    # --------------------------------------------------
+    # Phase 1: Detection & Declaration
+    # --------------------------------------------------
+    - id: "declare"
+      name: "Declare Incident"
+      description: "Create incident record and determine severity"
+      agent: "on-call-engineer"
+      action:
+        type: "declare_incident"
+        config:
+          severity_levels: ["SEV1", "SEV2", "SEV3", "SEV4"]
+          auto_severity: true
+          incident_channel: "slack"
+          create_bridge_line: "{{severity}} == 'SEV1'"
+      input:
+        - "{{trigger.alert_payload}}"
+        - "{{trigger.metric_data}}"
+      output:
+        - "incident.id"
+        - "incident.severity"
+        - "incident.channel"
+        - "incident.war_room"
+      timeout: "2m"
+
+    # --------------------------------------------------
+    # Phase 2: Triage
+    # --------------------------------------------------
+    - id: "triage"
+      name: "Incident Triage"
+      description: "Assess impact, identify affected systems, gather context"
+      agent: "on-call-engineer"
+      action:
+        type: "triage"
+        config:
+          context_sources:
+            - "monitoring_dashboards"
+            - "recent_deployments"
+            - "error_logs"
+            - "infrastructure_changes"
+          impact_assessment:
+            - "affected_users"
+            - "affected_regions"
+            - "affected_services"
+            - "data_integrity"
+      input:
+        - "{{steps.declare.output.incident.id}}"
+        - "{{steps.declare.output.incident.severity}}"
+      output:
+        - "triage.impact_summary"
+        - "triage.affected_systems"
+        - "triage.likely_cause"
+        - "triage.recommended_action"
+      timeout: "5m"
+
+    # --------------------------------------------------
+    # Phase 3: Communication (Parallel with Triage)
+    # --------------------------------------------------
+    - id: "communicate"
+      name: "Stakeholder Communication"
+      description: "Notify stakeholders based on severity"
+      agent: "incident-commander"
+      action:
+        type: "communicate"
+        config:
+          notification_rules:
+            SEV1:
+              immediate: ["engineering-lead", "cto", "customer-support"]
+              within_15min: ["executive-team", "legal"]
+              status_page: true
+            SEV2:
+              immediate: ["engineering-lead"]
+              within_30min: ["customer-support"]
+              status_page: true
+            SEV3:
+              immediate: ["team-lead"]
+              status_page: false
+            SEV4:
+              immediate: []
+              status_page: false
+          communication_templates:
+            initial: |
+              Incident {{incident.id}} declared ({{severity}})
+              Impact: {{impact_summary}}
+              Status: Investigating
+              Updates: {{incident.channel}}
+            update: |
+              Incident {{incident.id}} Update
+              Status: {{status}}
+              Summary: {{update_text}}
+            resolved: |
+              Incident {{incident.id}} Resolved
+              Duration: {{duration}}
+              Summary: {{resolution_summary}}
+      input:
+        - "{{steps.declare.output.incident.id}}"
+        - "{{steps.declare.output.incident.severity}}"
+        - "{{steps.triage.output.triage.impact_summary}}"
+      output:
+        - "communication.notifications_sent"
+        - "communication.status_page_url"
+      timeout: "2m"
+      ## Run in parallel with triage
+      parallel_with: ["triage"]
+
+    # --------------------------------------------------
+    # Phase 4: Mitigation
+    # --------------------------------------------------
+    - id: "mitigate"
+      name: "Incident Mitigation"
+      description: "Execute mitigation to restore service"
+      agent: "on-call-engineer"
+      action:
+        type: "mitigate"
+        config:
+          ## Mitigation strategies by common issue types
+          strategies:
+            - pattern: "error_rate_spike"
+              actions:
+                - "check_recent_deployments"
+                - "rollback_if_correlated"
+                - "scale_up_if_overload"
+            - pattern: "latency_spike"
+              actions:
+                - "check_database_performance"
+                - "enable_circuit_breakers"
+                - "scale_up_compute"
+            - pattern: "memory_leak"
+              actions:
+                - "restart_affected_pods"
+                - "enable_memory_limits"
+                - "trigger_heap_dump"
+          ## Maximum auto-mitigation attempts
+          max_auto_attempts: 3
+          ## Escalate if auto-mitigation fails
+          escalate_after_attempts: 2
+      input:
+        - "{{steps.triage.output.triage.likely_cause}}"
+        - "{{steps.triage.output.triage.affected_systems}}"
+        - "{{steps.triage.output.triage.recommended_action}}"
+      output:
+        - "mitigation.actions_taken"
+        - "mitigation.service_status"
+        - "mitigation.escalation_needed"
+      timeout: "15m"
+      ## SEV1 incidents may need extended timeout
+      extended_timeout:
+        SEV1: "30m"
+        SEV2: "20m"
+
+    # --------------------------------------------------
+    # Phase 5: Verification
+    # --------------------------------------------------
+    - id: "verify"
+      name: "Service Verification"
+      description: "Verify service recovery and monitor stability"
+      agent: "on-call-engineer"
+      action:
+        type: "verify"
+        config:
+          checks:
+            - "health_endpoints"
+            - "error_rates_normal"
+            - "latency_normal"
+            - "key_user_journeys"
+          monitoring_duration: "10m"
+          auto_resolve: true
+      input:
+        - "{{steps.mitigate.output.mitigation.service_status}}"
+      output:
+        - "verification.status"
+        - "verification.metrics"
+        - "verification.resolved"
+      timeout: "15m"
+
+    # --------------------------------------------------
+    # Phase 6: Resolution
+    # --------------------------------------------------
+    - id: "resolve"
+      name: "Resolve Incident"
+      description: "Formal incident resolution and final communication"
+      agent: "incident-commander"
+      action:
+        type: "resolve"
+        config:
+          require_verification: true
+          notify_stakeholders: true
+          update_status_page: true
+          capture_metrics: true
+      input:
+        - "{{steps.verify.output.verification.resolved}}"
+        - "{{steps.mitigate.output.mitigation.actions_taken}}"
+      output:
+        - "resolution.summary"
+        - "resolution.duration"
+        - "resolution.mttd"
+        - "resolution.mttr"
+      timeout: "5m"
+      ## Only run if verification passed
+      condition: "{{steps.verify.output.verification.resolved}} == true"
+
+    # --------------------------------------------------
+    # Phase 7: Post-Incident Review
+    # --------------------------------------------------
+    - id: "post-incident"
+      name: "Post-Incident Review"
+      description: "Create post-mortem and track action items"
+      agent: "incident-commander"
+      action:
+        type: "post_incident"
+        config:
+          postmortem_template: "five-whys"
+          action_items:
+            auto_create: true
+            assign_to: "team-lead"
+            due_date: "7d"
+          review_meeting:
+            schedule: true
+            within: "3d"
+            attendees: ["on-call-engineer", "team-lead", "engineering-lead"]
+      input:
+        - "{{steps.resolve.output.resolution.summary}}"
+        - "{{steps.triage.output.triage.likely_cause}}"
+        - "{{steps.mitigate.output.mitigation.actions_taken}}"
+        - "{{steps.communicate.output.communication.notifications_sent}}"
+      output:
+        - "postmortem.document"
+        - "action_items.created"
+        - "review.meeting_scheduled"
+      timeout: "10m"
+      ## Post-incident review is scheduled, not blocking
+      async: true
+
+  ## [REQUIRED] Incident Metadata
+  incident_metadata:
+    severity_definitions:
+      SEV1:
+        description: "Complete service outage or critical functionality loss"
+        response_time: "5 minutes"
+        update_frequency: "15 minutes"
+        requires_war_room: true
+      SEV2:
+        description: "Major functionality degraded"
+        response_time: "15 minutes"
+        update_frequency: "30 minutes"
+        requires_war_room: false
+      SEV3:
+        description: "Minor impact, workaround available"
+        response_time: "1 hour"
+        update_frequency: "2 hours"
+      SEV4:
+        description: "Minimal impact, cosmetic issues"
+        response_time: "4 hours"
+        update_frequency: "1 day"
+
+  ## [OPTIONAL] Escalation Policy
+  escalation:
+    ## Auto-escalate if no response
+    no_response_escalation:
+      SEV1: "5m"
+      SEV2: "15m"
+      SEV3: "30m"
+    ## Escalation chain
+    chain:
+      - level: 1
+        role: "on-call-engineer"
+      - level: 2
+        role: "team-lead"
+      - level: 3
+        role: "engineering-manager"
+      - level: 4
+        role: "cto"
+
+  ## [OPTIONAL] Metrics
+  metrics:
+    - name: "mttd"
+      description: "Mean Time To Detect"
+    - name: "mttr"
+      description: "Mean Time To Resolve"
+    - name: "mtbf"
+      description: "Mean Time Between Failures"
+    - name: "incident_count"
+      description: "Number of incidents by severity"

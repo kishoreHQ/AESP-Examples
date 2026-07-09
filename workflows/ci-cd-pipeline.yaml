@@ -1,0 +1,347 @@
+# CI/CD Pipeline Workflow
+# =======================
+# AESP Workflow: Continuous Integration and Deployment
+# 
+# This workflow defines a complete CI/CD pipeline using an agent swarm.
+# It covers building, testing, security scanning, code review, and deployment.
+#
+# AESP References:
+#   - AESP-0007: Workflow Orchestration
+#   - AESP-0010: Deployment Patterns
+#
+# Prerequisites:
+#   - Swarm configured with devops, code-reviewer, and security-auditor agents
+#   - CI/CD platform integration (GitHub Actions, GitLab CI, etc.)
+#   - Deployment targets configured (staging, production)
+# =======================
+
+workflow:
+  id: "ci-cd-pipeline"
+  name: "CI/CD Pipeline"
+  description: "Build, test, scan, review, and deploy with agent swarm"
+  version: "1.0.0"
+  spec_version: "0.1.0"
+
+  ## [REQUIRED] Trigger Configuration
+  trigger:
+    type: "event-driven"
+    events:
+      - "pull_request.opened"
+      - "pull_request.synchronize"
+      - "push.main"
+    ## Optional: branch filtering
+    branches:
+      include: ["main", "release/*"]
+      exclude: ["wip/*", "draft/*"]
+
+  ## [REQUIRED] Workflow Steps
+  steps:
+    # --------------------------------------------------
+    # Stage 1: Environment Setup
+    # --------------------------------------------------
+    - id: "setup"
+      name: "Environment Setup"
+      description: "Prepare build environment and dependencies"
+      agent: "devops"
+      action:
+        type: "setup_environment"
+        config:
+          checkout_code: true
+          install_dependencies: true
+          cache_key: "{{branch}}-{{checksum lockfile}}"
+      output:
+        - "environment.ready"
+        - "dependencies.installed"
+        - "cache.status"
+      timeout: "5m"
+      on_failure: "abort"
+
+    # --------------------------------------------------
+    # Stage 2: Lint and Format Check
+    # --------------------------------------------------
+    - id: "lint"
+      name: "Lint and Format"
+      description: "Run linters and format checkers"
+      agent: "devops"
+      action:
+        type: "lint"
+        config:
+          linters:
+            - "eslint"
+            - "prettier"
+            - "markdownlint"
+      input:
+        - "{{steps.setup.output.environment.ready}}"
+      output:
+        - "lint.report"
+        - "lint.status"
+      timeout: "5m"
+      on_failure: "abort"
+      ## Lint failures block the pipeline
+
+    # --------------------------------------------------
+    # Stage 3: Unit Tests
+    # --------------------------------------------------
+    - id: "unit-tests"
+      name: "Unit Tests"
+      description: "Run unit test suite with coverage"
+      agent: "devops"
+      action:
+        type: "test"
+        config:
+          test_type: "unit"
+          coverage:
+            enabled: true
+            minimum: 80
+            report_format: "cobertura"
+          parallel: true
+          max_workers: 4
+      input:
+        - "{{steps.setup.output.dependencies.installed}}"
+      output:
+        - "test.report"
+        - "coverage.report"
+        - "test.status"
+      timeout: "10m"
+      on_failure: "abort"
+
+    # --------------------------------------------------
+    # Stage 4: Integration Tests
+    # --------------------------------------------------
+    - id: "integration-tests"
+      name: "Integration Tests"
+      description: "Run integration tests with test database"
+      agent: "devops"
+      action:
+        type: "test"
+        config:
+          test_type: "integration"
+          services:
+            - "postgres:15"
+            - "redis:7"
+            - "minio"
+          setup:
+            - "migrate:test"
+            - "seed:test"
+      input:
+        - "{{steps.unit-tests.output.test.status}} == 'passed'"
+      output:
+        - "integration.report"
+        - "integration.status"
+      timeout: "15m"
+      on_failure: "abort"
+
+    # --------------------------------------------------
+    # Stage 5: Security Scan
+    # --------------------------------------------------
+    - id: "security-scan"
+      name: "Security Scan"
+      description: "SAST, dependency scan, and secrets detection"
+      agent: "security-auditor"
+      action:
+        type: "security_audit"
+        config:
+          scans:
+            - type: "sast"
+              tool: "semgrep"
+              rules: "p/owasp-top-ten,p/cwe-top-25"
+            - type: "dependency"
+              tool: "native"
+              fail_on: "high"
+            - type: "secrets"
+              tool: "gitleaks"
+          fail_threshold: "high"
+      input:
+        - "{{steps.setup.output.environment.ready}}"
+      output:
+        - "security.report"
+        - "security.status"
+        - "vulnerabilities.found"
+      timeout: "10m"
+      on_failure: "abort"
+      ## Security failures block deployment
+
+    # --------------------------------------------------
+    # Stage 6: Build Application
+    # --------------------------------------------------
+    - id: "build"
+      name: "Build Application"
+      description: "Build production artifacts"
+      agent: "devops"
+      action:
+        type: "build"
+        config:
+          build_type: "docker"
+          dockerfile: "Dockerfile"
+          tags:
+            - "{{commit_sha}}"
+            - "{{branch}}"
+          push_registry: "ghcr.io"
+          cache_from: "ghcr.io/{{repo}}:latest"
+      input:
+        - "{{steps.unit-tests.output.test.status}} == 'passed'"
+        - "{{steps.integration-tests.output.integration.status}} == 'passed'"
+        - "{{steps.security-scan.output.security.status}} == 'passed'"
+      output:
+        - "build.artifacts"
+        - "container.digest"
+        - "build.status"
+      timeout: "15m"
+      on_failure: "abort"
+
+    # --------------------------------------------------
+    # Stage 7: Agent Code Review
+    # --------------------------------------------------
+    - id: "agent-review"
+      name: "Agent Code Review"
+      description: "Automated code review by agent swarm"
+      agent: "code-reviewer"
+      action:
+        type: "code_review"
+        config:
+          focus_areas:
+            - "security"
+            - "performance"
+            - "maintainability"
+          max_review_time: "10m"
+          report_format: "structured"
+      input:
+        - "{{trigger.pr_diff}}"
+        - "{{trigger.pr_description}}"
+      output:
+        - "review.report"
+        - "review.approval_status"
+        - "review.issues"
+      timeout: "15m"
+      ## Review results are advisory, not blocking
+      on_failure: "continue"
+
+    # --------------------------------------------------
+    # Stage 8: Deploy to Staging
+    # --------------------------------------------------
+    - id: "deploy-staging"
+      name: "Deploy to Staging"
+      description: "Deploy build artifact to staging environment"
+      agent: "devops"
+      action:
+        type: "deploy"
+        config:
+          environment: "staging"
+          strategy: "rolling"
+          health_check:
+            endpoint: "/health"
+            timeout: "60s"
+            retries: 5
+          rollback_on_failure: true
+          smoke_tests:
+            - "{{base_url}}/health"
+            - "{{base_url}}/api/v1/status"
+      input:
+        - "{{steps.build.output.build.status}} == 'success'"
+      output:
+        - "deployment.url"
+        - "deployment.status"
+        - "deployment.version"
+      timeout: "10m"
+      ## Staging deployments happen automatically on PR
+      gate:
+        enabled: false
+
+    # --------------------------------------------------
+    # Stage 9: E2E Tests on Staging
+    # --------------------------------------------------
+    - id: "e2e-tests"
+      name: "E2E Tests"
+      description: "Run end-to-end tests against staging"
+      agent: "devops"
+      action:
+        type: "test"
+        config:
+          test_type: "e2e"
+          target_url: "{{steps.deploy-staging.output.deployment.url}}"
+          browser: "chromium"
+          parallel: 2
+          retries: 2
+      input:
+        - "{{steps.deploy-staging.output.deployment.status}} == 'healthy'"
+      output:
+        - "e2e.report"
+        - "e2e.status"
+      timeout: "20m"
+      on_failure: "rollback"
+      ## E2E failures trigger automatic rollback
+
+    # --------------------------------------------------
+    # Stage 10: Deploy to Production
+    # --------------------------------------------------
+    - id: "deploy-production"
+      name: "Deploy to Production"
+      description: "Deploy to production with canary strategy"
+      agent: "devops"
+      action:
+        type: "deploy"
+        config:
+          environment: "production"
+          strategy: "canary"
+          canary:
+            percentage: 10
+            duration: "10m"
+            metrics:
+              - "error_rate < 1%"
+              - "p99_latency < 500ms"
+          promotion:
+            strategy: "gradual"
+            steps: [25, 50, 100]
+            step_duration: "5m"
+          rollback:
+            automatic: true
+            trigger: "error_rate > 5% OR p99_latency > 1000ms"
+      input:
+        - "{{trigger.event}} == 'push.main'"
+        - "{{steps.e2e-tests.output.e2e.status}} == 'passed'"
+        - "{{steps.security-scan.output.security.status}} == 'passed'"
+      output:
+        - "deployment.url"
+        - "deployment.status"
+        - "deployment.version"
+      timeout: "30m"
+      ## Production requires human approval
+      gate:
+        enabled: true
+        approvers: ["tech-lead", "on-call-engineer"]
+        timeout: "24h"
+
+  ## [OPTIONAL] Notifications
+  notifications:
+    on_success:
+      - channel: "slack"
+        target: "#deployments"
+        message: "Deployed {{repo}} v{{version}} to production"
+    on_failure:
+      - channel: "slack"
+        target: "#alerts"
+        message: "CI/CD failed for {{repo}}: {{failed_step}}"
+      - channel: "pagerduty"
+        target: "platform-oncall"
+        severity: "warning"
+    on_approval_needed:
+      - channel: "slack"
+        target: "@{{approvers}}"
+        message: "Production deployment awaiting approval: {{pr_url}}"
+
+  ## [OPTIONAL] Rollback Configuration
+  rollback:
+    automatic: true
+    conditions:
+      - "error_rate > 5%"
+      - "p99_latency > 1000ms"
+      - "health_check_fails > 3"
+    notification:
+      channel: "slack"
+      target: "#alerts"
+
+  ## [OPTIONAL] Metadata
+  metadata:
+    estimated_duration: "90m"
+    cost_estimate: "low"
+    compliance_requirements: ["audit-log"]

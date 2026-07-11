@@ -1,3 +1,16 @@
+# AESP-Examples
+
+Executable examples for the Autonomous Engineering Specification (AESP) and the
+host-neutral Agent OS reference implementation.
+
+- Spec: https://github.com/kishoreHQ/AESP
+- Reference implementation: https://github.com/kishoreHQ/AESP-Reference-Implementation
+- Mission library: [examples/](./examples/)
+- Gate: [gates/GATE-3.md](./gates/GATE-3.md)
+
+
+---
+
 # AESP Examples — Templates, Prompts & Workflows
 
 > **Example implementations, templates, prompts, workflows, MCP integrations, and sample projects for the [Autonomous Engineering Specification (AESP)](https://github.com/kishoreHQ/AESP).**
